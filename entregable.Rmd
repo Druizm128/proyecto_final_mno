@@ -1,0 +1,474 @@
+---
+title: "Mínimos cuadrados alternados con regularización para un sistema de recomendación de Netflix."
+subtitle: "Equipo 13"
+author:
+- 183340 Dante Ruiz  
+- 144089 Laura López S.Jacome
+date: "4/29/2019"
+output: 
+  pdf_document: 
+    toc: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(Matrix)
+```
+
+## Problema:
+
+La misión de Netflix es conectar a las personas con las películas que aman. Para ayudar a los clientes a encontrar esas películas, Netflix ha desarrollado un sistema de recomendación de películas de clase mundial: CinematchSM. Su trabajo es predecir si alguien disfrutará de una película en función de cuánto les haya gustado o no a otras películas. Usamos esas predicciones para hacer recomendaciones personalizadas de películas basadas en los gustos únicos de cada cliente . 
+
+## Objetivo:
+
+Utilizar los ratings de diferentes usuarios para películas, para predecir el rating el resto de las películas que no han visto.
+
+Programar en de manera local en R el algorítmo de mínimos cuadarados alternados que se ha utilizado para ajustar sistemas de recomendción, utilizando los datos de la competencia de Netflix. Asimismo, comparar su desempeño con otras implementaciones disponibles.
+
+## Datos:
+
+Los datos provienen de la competencia de Netflix CinematchSM que consisten en un conjunto de entrenamiento y un conjunto de prueba.
+
+El **conjunto de entrenamiento** contiene más de 100 millones de ratings que corresponden a 480,000 usuarios y 18,000 películas. 
+
+Cada registro en el conjunto de entrenamiento contiene:
+
+```{r}
+dat_netflix <- read_csv( "datos/dat_muestra_nflix.csv", progress = FALSE) %>% 
+  select(-usuario_id_orig) %>% 
+  mutate(usuario_id = as.integer(as.factor(usuario_id)))
+head(dat_netflix)
+```
+
+
+* user
+* movie
+* date
+* rating: calificaciones categóricas ordinales del 1 al 5.
+
+El conjunto de prueba contiene 2.8 millones de registros y no contiene ratings.
+
+Adicionalmente, se proporcionó un catálogo de películas:
+
+```{r}
+pelis_nombres <- read_csv('datos/movies_title_fix.csv', col_names = FALSE, na = c("", "NA", "NULL"))
+names(pelis_nombres) <- c('peli_id','año','nombre')
+head(pelis_nombres)
+```
+
+En el trabajo utilizaremos una muestra de los datos de Netflix que contiene 20 millones de ratings.
+
+### Algunas problemáticas de los datos son:
+
+1. Tamaño de los datos. Mayor tiempo de entrenamiento y requerimiento en la memoria
+
+2. Matriz rala. Solo 1% de la matriz de usuarios películas ha sido observada, con la mayoría de las entradas sin registar.
+
+3. Ruido. No todos los usuarios califican con precisión y todos tienen una percepción de cómo calificar las películas. 
+
+4. Distribución temporal de los ratings. El conjunto de entrenamiento abarca los ratings del periodo 1995-2005. El conjunto de prueba abarca ratings en el periodo 2006.
+
+5. Usuarios con pocas calificaciones. Es díficil predecir con precisión los ratings de usuarios que con pocas calificaciones apenas y aparecen en el conjunto de entrenamiento y de prueba.
+
+## Métodos:
+
+Métodos colaborativos
+
+* Memory based techniques
+*	User based collaborative filtering
+*	Item-based collaborative filtering
+
+Model-based techniques
+
+* Principal component analysis (PCA)
+* Probabilistic Matrix Factorization (PMF) 
+* SVD
+* Mínimos cuadrados alternados
+
+Content-based filtering
+
+* Term-frequency-inverse document frecuency (TF - IDF)
+* Probabilistic methods
+
+Hypbrid filtering
+
+## Mínimos cuadrados alternados
+
+Supongamos entonces que queremos encontrar matrices $U$ y $V$, donde $U$ es una matrix de $n \times k$ ($n=$ número de usuarios), y $V$ es una matriz de $p \times k$, donde $p$ es el número de películas que nos de una
+aproximación de la matrix $X$ de calificaciones.
+
+$$
+R \approx UM^t
+$$
+Ahora supongamos que conocemos $V_1$. Si este es el caso, entonces queremos
+resolver para $U_1$:
+$$ \min_{U_1}|| R - U_1M_1^t||_{obs}^2$$
+
+Como $V_1^t$ están fijas, este es un problema de mínimos cuadrados usual, y puede resolverse analíticamente (o usar descenso en gradiente, que es simple de calcular de forma analítica) para encontrar $U_1$. Una vez que encontramos $U_1$, la fijamos, e intentamos ahora resolver para $V$:
+
+$$ \min_{V_2}|| R - U_1M_2^t||_{obs}^2$$
+
+Y una vez que encontramos $V_2$ resolvemos
+
+$$ \min_{U_2}|| R - U_2M_2^t||_{obs}^2$$
+
+Continuamos este proceso hasta encontrar un mínimo local o hasta cierto número de iteraciones. Para inicializar $V_1$, se recomienda tomar como primer renglón el promedio de las calificaciones de las películas, y el resto números aleatorios chicos (por ejemplo $U(0,1)$). También pueden inicializarse con números aleatorios chicos las dos matrices.
+
+## Intuición:
+
+La intuición del algorítmo de mínimos cuadrados alternados es que dada una matriz, R, done las columnas son películas y los renglones son usuarios y cada entrada de la matriz son los ratings que da un usuario i para una película j.
+
+La naturaleza del problema implica que la matriz R tendrá muchas entradas sin calificaciones ya que no todos los usuarios han visto y por ende calificado todo el universo de películas. En ese sentido la matriz R es una matriz rala.
+
+El objetivo del problema es predecir ratings razonables para estas entradas vacias por usuario y película. Con el método de ALS esto se hace aproximando R como una descomposición de matrices U * M, donde U es la matriz de usuarios y M es una matriz de películas.
+
+La matriz U tiene dimensiones $n_{u}\times n_{f}$ donde $n_{u}$, número de usuarios y $n_{f}$ el número de factores.
+
+La matriz M tiene dimensiones $n_{f}\times n_{m}$ donde, $n_{f}$ el número de factores y $n_{u}$, número de de películas.
+
+Intuitivamente se entiende que la matriz M describe cuánto puntaje cada película según los factores latentes. Estos factores latentes se pueden interpretar en el caso de películas cómo géneros de película tipo comedia, terror, acción, etc, que encuentre la descomposición matricial.
+
+Por otro lado, la matríz U describe que tanto le gusta al usuario ese género de películas (factores latentes).
+
+En ese sentido, la descomposición matricial de R en U x M se puede resolver cómo un problema de optimización donde la función objetivo a minimizar es:
+
+$$\min_{U,V} f(U,M)=\sum_{(i,j)\, obs}w_{i,j} (r_{ij}-u_i^tm_j)^2 + 
+\lambda \left ( \sum_i n_{u_{i}}||u_i||^2 + \sum_j n_{m_{j}} ||m_j||^2 \right)$$
+
+El primer término a la derecha minimiza $R - U \times M$ que significa error entre la matriz observada y su aproximación. Para solo considerar los ratings originales de los usuarios se utiliza la matriz de pesos $W$ que contiene los elementos $w_{i,j}$ que toma el valor de 1 si el rating original era conocido y 0 cuando no se conocía la película o el rating. De este modo $W$ garantiza que solo se tengna en cuenta las calificaciones conocidas durante la minimización de costo.
+
+El segundo término es la regularización tipo ridge para lambda grandes este término garantiza que la matriz U y M no sean demasiado grandes evitando el sobreajuste de los datos.
+
+$n_{u_{i}}$ es el número de ratings disponibles para el usuario $u_{i}$
+
+$n_{m_{j}}$ es el número de ratings disponibles para la película $m_{j}$
+
+## Métrica de desempeño
+
+La métrica que se utilizó en el concurso y que se utilizará también en este proyecto es la RMSE (root mean squared error). El objetivo del algorítmo es minimizar esta función de pérdida.
+
+```{r}
+recm <- function(calif, pred){
+  sqrt(mean((calif - pred)^2))
+}
+```
+
+## Algorítmo del método a implementar
+
+El enfoque de este proyecto en particular es utilizar alguno de los enfoque de técnicas de modelación. En particular nos gustaría utilizar el Mínimos cuadrados alternados para resolver el problema.
+
+Este método es un filtro colaborativo para generar recomendaciones. Estos métodos usan gustos o intereses de usuarios/artículos similares — en el sentido de que les han gustado los mismos artículos/les gustaron a las mismas personas.
+
+Ejemplo: Me gustó StarWars y Harry Potter, varios otros usuarios a los que también les gustaron estas dos películas también les gustó “Señor de los anillos”, así que recomendamos “Señor de los Anillos”.
+
+A fin de lograr una implementación exitosa del modelo, primero utilizaremos una simulación de los datos de Netflix para tener una matriz de usuarios, películas y calificaciones pequeña y manejable. Posteriormente probaremos con los datos de la competencia. 
+
+Simulamos datos de ratings para peliculas y usuarios.
+
+```{r}
+n_usuarios <- 100
+
+starwars1 <- sample.int(6, n_usuarios, replace = TRUE) - 1
+starwars2 <- sample.int(6, n_usuarios, replace = TRUE) - 1
+starwars3 <- sample.int(6, n_usuarios, replace = TRUE) - 1
+harrypotter1 <- sample.int(6, n_usuarios, replace = TRUE) - 1
+harrypotter2 <- sample.int(6, n_usuarios, replace = TRUE) - 1
+harrypotter3 <- sample.int(6, n_usuarios, replace = TRUE) - 1
+legallyblond <- sample.int(6, n_usuarios, replace = TRUE, prob = c(.5,.1,.1,.05,.03,.02)) - 1
+little_mermaid <- sample.int(6, n_usuarios, replace = TRUE, prob = c(.5,.1,.1,.1,.1,.1)) - 1
+mamamia <- sample.int(6, n_usuarios, replace = TRUE, prob = c(.5,.1,.1,.1,.1,.1)) - 1
+usuario_id <- seq(1, n_usuarios)
+
+
+sample_matrix <- cbind(usuario_id, starwars1, starwars2, starwars3, harrypotter1, harrypotter2, harrypotter3, legallyblond,little_mermaid, mamamia)
+
+sample_df <- as_data_frame(sample_matrix)
+```
+
+Creamos un catalogo con los ids de las películas
+
+```{r}
+catalogo_pelis <- as_data_frame(cbind(names(sample_df),seq(1,10)))
+names(catalogo_pelis) <- c("nombre_peli", "peli_id")
+catalogo_pelis
+```
+
+Creamos una matriz rala en la forma de un dataframe, usuario_id y peli_id son las coordenadas de los ratings en la matriz rala.
+
+```{r}
+muestra_netflix <- sample_df %>% gather(nombre_peli,rating, 2:10) %>% filter(rating >0) %>% left_join(catalogo_pelis)
+```
+
+Convertimos el dataframe al formato de matriz rala indicando los ejes. x = usuarios, y = películas con las siguientes dimensiones.
+
+```{r}
+
+# Convertimos los datos a una matrix de formato: usarios X peliculas = R
+R <- sparseMatrix(
+  as.integer(muestra_netflix$usuario_id), # renglón
+  as.integer(muestra_netflix$peli_id),    # columna 
+  x = muestra_netflix$rating)              # rating
+
+# Obtenemos las dimensiones de la matriz R
+n_u <- dim(R)[1]
+n_m <- dim(R)[2]
+
+paste("Tenemos una matriz rala de dimensiones ", n_u, " x ", n_m, sep="")
+
+
+```
+
+Las primeras 10 entradas de la matriz se ven de la siguiente forma:
+
+```{r}
+head(R,10)
+```
+
+Obtenemos matriz de pesos $W$ que es una variable indicadora de si hay o no calificación para la película, 1 y 0 respectivamente. Esta índicadora será de utilidad para calcular el error de aproximación. En el paper Yunhong .Z et al 2008 está matriz se llama $I$.
+
+```{r}
+# Obtenemos matriz de pesos W
+
+# La matriz W tiene 0 (NA) cuando el usuario no ha calificado la película, y tiene 1 para las películas que sí calificó (a esta matriz le llaman I en el paper)
+W <- R
+W@x[!is.na(W@x)] <- 1
+
+head(W)
+```
+
+Especificamos la función objetivo del problema de optimización a resolver que especificamos en la sección de intuición. 
+
+```{r}
+# Función de costo 
+##  n_u_i: número de ratings para cada usuario
+##  n_m_j: número de ratings para cada pelicula
+
+fn_costo <- function (R, U, M, W, lambda, n_u_i, n_m_j) {
+  sum(W * ((R - (U %*% M)) ^ 2)) + lambda * (sum(n_u_i %*% (U ^ 2)) + sum((M ^2) %*% n_m_j))
+}
+```
+
+Damos valores a los parámetros de regularización $\lambda$, números de factores latentes, y número de iteraciones. Asímismo fijamos una semilla para la reproducibilidad del modelo.
+
+```{r}
+# Semilla
+set.seed(28882)
+# Regularización
+lambda = 0.1
+# Número de factores latentes
+n_factors = 5
+# Número de iteraciones
+n_iterations = 100
+```
+
+Inicializamos la matriz de películas $M = factores X peliculas$ se incializará con números aleatorios pequeños provenientes de una distribución uniforme. $\delta$ es un parámetro que tiene solo el propósito de hacer los números chicos.
+
+En el artículo de Yunhong .Z et al 2008,  se sugiere inicializar el primer factor latente (primer renglón) de la matriz de M utilizando los promedios  de las calificaciones para cada película. En caso de que exista alguna película sin calificación se inicializa con el promedio de todas las películas.
+
+Inicializamos U con 1s y 0s aunque en realidad no importan los valores ya que la matriz U se va a sobreescribir en la primera fase del ciclo
+
+```{r}
+# Factor para hacer chicos los números.
+delta <- 0.0001
+# Inicializamos la matriz de películas y factores latentes
+M <- delta * matrix(runif(n_m * n_factors),nrow = n_factors, ncol = n_m)
+
+# Como se sugiere en el artículo, se inicializará la primera fila de la matriz M con los promedios de calificaciones de las películas. Si hay películas SIN calificación, se les pone la calificación promedio de todas las peliculas 
+M[1, ] <- colSums(R, na.rm = TRUE) / colSums(W)
+calif_promedio <- mean(M[1, ], na.rm = TRUE)
+M[1, ][is.na(M[1, ])] <- calif_promedio
+
+# Inicializamos la matriz de Us con 1.
+U <- matrix(0, nrow = n_u, ncol = n_factors)
+U[, 1] <- 1
+
+# Número de ratings para cada usuario
+n_u_i <- rowSums(W)
+
+# Número de usuarios para cada pelicula
+n_m_j <- colSums(W)
+```
+
+A continuación calculamos el valor de la función objetivo en la iteración cero. Es decir solo sustituimos los valores iniciales en la función de costo.
+
+```{r}
+# Costo de la primera iteración
+cost <- fn_costo(R, U, M, W, lambda = lambda, n_u_i, n_m_j)
+
+print(paste0("Iteración 0: Función de costo = ", cost))
+```
+
+
+
+A continuación proponemos el algorítmo para actualizar la función objetivo actualizando los valores de U y M. En cada iteración primero se fija $M_{0}$ para obtener $U_{1}$, después se usa esa $U_{1}$ para calcular $M_{1}$ y se sustituyen estos valores en la función objetivo para calcular al pérdida. De esta manera esta iteración actualiza los valores de la matriz de usuarios y películas.
+
+```{r, eval=FALSE}
+# Este for aproxima U%*%M a R, considerando la matriz de pesos W para calcular el error
+for (kk in 1:n_iterations) {
+  # El primer paso es fijar M y minimizar la fn de costo. Se itera sobre los usuarios 
+  
+  for (ii in 1:n_u) {
+    # Primero hay que desechar las columnas M y filas R que son irrelevantes para 
+    #el usuario ii, para poder incrementar la velocidaddel algorítmo
+
+    M_selected <- M[, W[ii,] == 1, drop = FALSE]
+    R_selected <- R[ii,][W[ii,] == 1, drop = FALSE]
+    # Actualiza U para cada usuario ii
+    U[ii,] <-
+      t(solve(
+        M_selected %*% t(M_selected) + lambda * n_u_i[ii] * diag(n_factors),
+        (M_selected %*% R_selected)
+      ))
+  }
+  cost <- fn_costo(R, U, M, W, lambda = lambda, n_u_i, n_m_j)
+  print(paste0(kk, "iteración, paso 2: Función de costo = ", cost))
+  
+  # Minimizar U %*% M para una U fija iterando sobre n usuarios (items)
+  for (jj in 1:n_m) {
+    if (sum(W[, jj] == 1) > 0) {
+      U_selected <- U[W[, jj] == 1, , drop = FALSE]
+      R_col_selected <- R[, jj][W[, jj] == 1, drop = FALSE]
+      # Actualiza M para cada película jj
+      M[, jj] <-
+        solve(
+          t(U_selected) %*% U_selected + lambda * n_m_j[jj] * diag(n_factors),
+          t(U_selected) %*% R_col_selected
+        )
+    }
+  }
+  cost <- fn_costo(R, U, M, W, lambda = lambda, n_u_i, n_m_j)
+  print(paste0(kk, "iteración, paso 2: Función de costo = ", cost))
+}
+
+```
+
+######
+
+```{r}
+## vector de kk
+vector_kk <- vector(mode = "numeric", length = n_iterations)
+vector_kkk <- vector(mode = "numeric", length = n_iterations)
+vector_kkkk <- vector(mode = "numeric", length = n_iterations)
+
+
+# Este for aproxima U%*%M a R, considerando la matriz de pesos W para calcular el error
+for (kk in 1:n_iterations) {
+  # El primer paso es fijar M y minimizar la fn de costo. Se itera sobre los usuarios 
+  
+  for (ii in 1:n_u) {
+    # Primero hay que desechar las columnas M y filas R que son irrelevantes para 
+    #el usuario ii, para poder incrementar la velocidaddel algorítmo
+
+    M_selected <- M[, W[ii,] == 1, drop = FALSE]
+    R_selected <- R[ii,][W[ii,] == 1, drop = FALSE]
+    # Actualiza U para cada usuario ii
+    U[ii,] <-
+      t(solve(
+        M_selected %*% t(M_selected) + lambda * n_u_i[ii] * diag(n_factors),
+        (M_selected %*% R_selected)
+      ))
+    
+      
+  }
+  cost <- fn_costo(R, U, M, W, lambda = lambda, n_u_i, n_m_j)
+  print(paste0(kk, "iteración, paso 2: Función de costo = ", cost))
+  vector_kkk[kk] <- cost
+  
+  # Minimizar U %*% M para una U fija iterando sobre n usuarios (items)
+  for (jj in 1:n_m) {
+    if (sum(W[, jj] == 1) > 0) {
+      U_selected <- U[W[, jj] == 1, , drop = FALSE]
+      R_col_selected <- R[, jj][W[, jj] == 1, drop = FALSE]
+      # Actualiza M para cada película jj
+      M[, jj] <-
+        solve(
+          t(U_selected) %*% U_selected + lambda * n_m_j[jj] * diag(n_factors),
+          t(U_selected) %*% R_col_selected
+        )
+    }
+  }
+  cost <- fn_costo(R, U, M, W, lambda = lambda, n_u_i, n_m_j)
+  print(paste0(kk, "iteración, paso 2: Función de costo = ", cost))
+  vector_kkkk[kk] <- cost
+  
+  # Guardar iteración
+  vector_kk[kk] <- kk
+  
+}
+
+```
+
+```{r}
+#print(vector_kk)
+#print(vector_kkk)
+#print(vector_kkkk)
+data_frame(vector_kk, vector_kkk,vector_kkkk) %>% 
+  gather("funcion_de_costo","costo",2:3) %>% ggplot(aes(x = vector_kk, y = costo, color = funcion_de_costo)) + 
+  geom_line() + 
+  geom_point() +
+  ggtitle("Monitoreo de la función de pérdida del algorítmo de mínimos cuadrados alternados")
+```
+
+
+######
+
+
+Recuperamos la matriz U que corresponde a usuarios y k factores latentes. En teoría esperaríamos que esta descomposición se pudiera interpretar como géneros de películas que le gustan a los usuarios, pero vemos que no es tán fácil identificar esta información a partir de la matriz. 
+
+Abajo se muestran las 10 primeras entradas de la matriz U estiamda.
+
+```{r}
+# Recuperamos la matriz U que corresponde a usuarios y k factores latentes
+head(round(U,1),10)
+```
+
+Está matriz se debería interpretar como los géneros a los que pertenece cada una de las películas, pero igualmente no es tan fácil interpretar a partir de la matriz. 
+
+Abajo se muestran las 10 primeras entradas de la matriz M estiamda.
+
+```{r}
+# Recuperamos la matriz M que corresponde a películas y k factores latentes
+round(M,1)
+```
+
+Finalmente, calculamos el error RMSE 
+
+```{r}
+# Aproximamos la matriz de calificaciones R realizando el producto de matrices U * M
+ratings <-as(U %*% M, "dgCMatrix")
+round(ratings)
+```
+
+Calculamos el error de la aproximación utilizando RMSE.
+
+```{r}
+# Error de la aproximación RMSE
+recm(R,ratings)
+```
+
+Vemos que el error es grande para el contexto del problema, pero luce bien para la implementación de este algorítmo.
+
+El siguiente paso sería ver como se ve está implementación utilizando todos los datos y paralelización, utilizando el algorítmo ALS programado en Spark.
+
+## ALS paralelizado con todos los datos de netflix. 
+
+## Referencias
+
+**Prototyping a Recommender System Step by Step Part 2: Alternating Least Square (ALS) Matrix Factorization in Collaborative Filtering**
+
+https://towardsdatascience.com/prototyping-a-recommender-system-step-by-step-part-2-alternating-least-square-als-matrix-4a76c58714a1
+
+**Large-scale Parallel Collaborative Filtering for the Netflix Prize**
+
+https://endymecy.gitbooks.io/spark-ml-source-analysis/content/%E6%8E%A8%E8%8D%90/papers/Large-scale%20Parallel%20Collaborative%20Filtering%20the%20Netflix%20Prize.pdf
+
+**Matrix Completion via Alternating Least Square(ALS)**
+
+http://stanford.edu/~rezab/classes/cme323/S15/notes/lec14.pdf
+
+
+**Alternating Least Squares Method for Collaborative Filtering**
+
+https://bugra.github.io/work/notes/2014-04-19/alternating-least-squares-method-for-collaborative-filtering/
+
